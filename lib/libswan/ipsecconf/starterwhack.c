@@ -83,7 +83,7 @@ int starter_whack_add_conn(const char *ctlsocket,
 		return 0;
 	}
 
-	int r = whack_send_msg(&msg, ctlsocket, NULL, NULL, 0, 0, logger, noise);
+	int r = whack_send_msg(&msg, ctlsocket, NULL, NULL, NULL, 0, 0, 0, logger, noise);
 	if (r != 0)
 		return r;
 

@@ -74,12 +74,12 @@ static int whack_get_value(char *buf, size_t bufsize)
 
 /* Get password from user.  Truncate it to fit in buf. */
 /* ??? the function getpass(3) is obsolete! */
-static size_t whack_get_secret(char *buf, size_t bufsize)
+static size_t whack_get_secret(const char *prompt, char *buf, size_t bufsize)
 {
 	fflush(stdout);
 	passert(bufsize > 0);	/* room for terminal NUL */
 
-	char *secret = getpass("Enter passphrase: ");
+	char *secret = getpass(prompt);
 	/* jam_str would be good but it requires too much library */
 	size_t len = strlen(secret) + 1;
 	size_t trunc_len = len <= bufsize ? len : bufsize;
@@ -103,8 +103,10 @@ static void whack_send_reply(int sock, const char *buf, ssize_t len, struct logg
 static int whack_read_reply(int sock,
 			    char xauthusername[MAX_XAUTH_USERNAME_LEN],
 			    char xauthpass[XAUTH_MAX_PASS_LENGTH],
+			    char xauthotp[XAUTH_MAX_PASS_LENGTH],
 			    int usernamelen,
 			    int xauthpasslen,
+			    int xauthotplen,
 			    struct logger *logger,
 			    enum whack_noise noise)
 {
@@ -196,7 +198,8 @@ static int whack_read_reply(int sock,
 				}
 				if (xauthpasslen == 0) {
 					xauthpasslen =
-						whack_get_secret(xauthpass,
+						whack_get_secret("Enter passphrase: ",
+								 xauthpass,
 								 XAUTH_MAX_PASS_LENGTH);
 				}
 				if (xauthpasslen > XAUTH_MAX_PASS_LENGTH) {
@@ -212,6 +215,33 @@ static int whack_read_reply(int sock,
 				}
 				whack_send_reply(sock, xauthpass, xauthpasslen, logger);
 				break;
+
+			case RC_ENTEROTP:
+			{
+				if (xauthotp == NULL) {
+					llog(ERROR_STREAM, logger,
+					     "unexpected request for xauth OTP");
+					exit(RC_WHACK_PROBLEM);
+				}
+				/*
+				 * A one-time password is never the
+				 * --xauthpass password.  Use
+				 * --xauthotp once, then prompt; it
+				 * is never cached.
+				 */
+				if (xauthotplen > 0) {
+					whack_send_reply(sock, xauthotp, xauthotplen, logger);
+					memset(xauthotp, 0, XAUTH_MAX_PASS_LENGTH);
+					xauthotplen = 0;
+					break;
+				}
+				char otp[XAUTH_MAX_PASS_LENGTH];
+				size_t otplen = whack_get_secret("Enter OTP: ",
+								 otp, sizeof(otp));
+				whack_send_reply(sock, otp, otplen, logger);
+				memset(otp, 0, sizeof(otp));
+				break;
+			}
 
 			case RC_USERPROMPT:
 				if (xauthusername == NULL) {
@@ -262,7 +292,8 @@ static int whack_read_reply(int sock,
 int whack_send_msg(struct whack_message *msg, const char *ctlsocket,
 		   char xauthusername[MAX_XAUTH_USERNAME_LEN],
 		   char xauthpass[XAUTH_MAX_PASS_LENGTH],
-		   int usernamelen, int xauthpasslen,
+		   char xauthotp[XAUTH_MAX_PASS_LENGTH],
+		   int usernamelen, int xauthpasslen, int xauthotplen,
 		   struct logger *logger,
 		   enum whack_noise noise)
 {
@@ -351,7 +382,8 @@ int whack_send_msg(struct whack_message *msg, const char *ctlsocket,
 	}
 
 	/* read reply (possibly send further messages) */
-	int ret = whack_read_reply(sock, xauthusername, xauthpass, usernamelen, xauthpasslen,
+	int ret = whack_read_reply(sock, xauthusername, xauthpass, xauthotp,
+				   usernamelen, xauthpasslen, xauthotplen,
 				   logger, noise);
 	close(sock);
 

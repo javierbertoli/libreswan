@@ -341,6 +341,7 @@
       <arg choice="opt">--remote-host <replaceable>ip-address</replaceable></arg>
       <arg choice="opt">--xauthuser <replaceable>user</replaceable></arg>
       <arg choice="opt">--xauthpass <replaceable>pass</replaceable></arg>
+      <arg choice="opt">--xauthotp <replaceable>otp</replaceable>|-</arg>
       &opt_async;
     </cmdsynopsis>
 
@@ -1909,6 +1910,29 @@
 	      is normally passed along by &ipsec-up.8; when an xauth
 	      connection is started using <command>ipsec up
 	      <replaceable>connection</replaceable></command>.
+	    </para>
+          </listitem>
+	</varlistentry>
+
+	<varlistentry>
+          <term>
+	    <option>--xauthotp</option>
+	  </term>
+          <listitem>
+            <para>
+	      The one-time password (OTP) for the xauth
+	      authentication, sent when the server requests a passcode
+	      (XAUTH_PASSCODE) or uses XAUTH_TYPE OTP, for instance a
+	      FortiGate using email or token two-factor
+	      authentication.  It is used once; the
+	      <option>--xauthpass</option> password is never sent as
+	      the OTP.  When not specified, whack prompts for the OTP.
+	    </para>
+	    <para>
+	      A value given on the command line is visible to other
+	      users, for instance using <command>ps</command>.  Use
+	      <option>--xauthotp -</option> to read the OTP from
+	      standard input instead, or let whack prompt for it.
 	    </para>
           </listitem>
 	</varlistentry>
