@@ -1052,6 +1052,7 @@ kvmplutotest	ikev1-xauth-35-xauth-only-lease-psk			good	github/1955
 kvmplutotest	ikev1-xauth-35-xauth-only-lease-x509			good	github/1955
 kvmplutotest	ikev1-xauth-36-cisco-split				good	github/2230
 kvmplutotest	ikev1-xauth-37-cisco-split-racoon-responder		good	github/2230
+kvmplutotest	ikev1-xauth-38-passcode				good
 
 #
 # Aggressive Mode Pluto Tests

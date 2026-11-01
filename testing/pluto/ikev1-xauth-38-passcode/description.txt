@@ -1,0 +1,18 @@
+IKEv1 XAUTH client answers a passcode (OTP) request
+
+east, impaired with send_xauth_passcode, requests XAUTH_PASSCODE in
+addition to the username and password, the way a FortiGate using
+email/token two-factor authentication does.
+
+road must prompt for the username, the password and then, separately,
+the OTP, which whack answers using --xauthotp (never the --xauthpass
+password).
+
+east ignores the passcode in the reply and authenticates using the
+password.
+
+Since east ignores the passcode, this test doesn't check that the
+value sent is the OTP rather than the password.
+
+NOTE: this test has never been run on a real KVM; the expected
+*.console.txt output was written by hand and needs regenerating.
