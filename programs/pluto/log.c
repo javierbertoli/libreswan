@@ -191,13 +191,14 @@ static void shunk_to_whack(shunk_t message, const struct fd *whackfd, enum rc_ty
  */
 bool whack_prompt_for(struct ike_sa *ike,
 		      const char *prompt,
-		      bool echo, char *ansbuf, size_t ansbuf_len)
+		      enum rc_type rc, char *ansbuf, size_t ansbuf_len)
 {
 	/* find an fd */
 	struct fd *whack_fd = logger_fd(ike->sa.logger);
 	if (whack_fd == NULL) {
 		llog(RC_LOG, ike->sa.logger,
-		     "XAUTH password requested, but no file descriptor available for prompt");
+		     "XAUTH %s requested, but no file descriptor available for prompt",
+		     prompt);
 		return false;
 	}
 
@@ -210,8 +211,7 @@ bool whack_prompt_for(struct ike_sa *ike,
 		jam(buf, "prompt for %s:", prompt);
 		/* message, not including trailing '\0' */
 		shunk_t message = jambuf_as_shunk(buf);
-		shunk_to_whack(message, whack_fd,
-			       echo ? RC_USERPROMPT : RC_ENTERSECRET);
+		shunk_to_whack(message, whack_fd, rc);
 	}
 
 	ssize_t n = fd_read(whack_fd, ansbuf, ansbuf_len);

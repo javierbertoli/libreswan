@@ -2371,7 +2371,8 @@ stf_status modecfg_server_inACK(struct state *ike_sa, struct msg_digest *md)
 static stf_status xauth_client_resp(struct ike_sa *ike,
 				    struct msg_digest *md,
 				    lset_t xauth_resp,
-				    uint16_t ap_id)
+				    uint16_t ap_id,
+				    uint16_t xauth_type)
 {
 	/*
 	 * Send back the password.
@@ -2402,6 +2403,10 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 			return STF_INTERNAL_ERROR;
 		}
 
+		/* before xauth_resp, below, is consumed */
+		bool passcode_requested =
+			(xauth_resp & LELEM(IKEv1_ATTR_XAUTH_PASSCODE - IKEv1_ATTR_XAUTH_TYPE));
+
 		/* lset_t xauth_resp is used as a secondary index variable */
 
 		for (int attr_type = IKEv1_ATTR_XAUTH_TYPE;
@@ -2415,7 +2420,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 					struct isakmp_attribute attr = {
 						.isaat_af_type = (attr_type |
 								  ISAKMP_ATTR_AF_TV),
-						.isaat_lv = IKEv1_XAUTH_TYPE_GENERIC,
+						.isaat_lv = xauth_type,
 					};
 					if (!modecfg_out_attr(&modecfg_pbs, attr, NULL)) {
 						return STF_INTERNAL_ERROR;
@@ -2437,7 +2442,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 					if (ike->sa.st_xauth_username[0] == '\0') {
 						if (!whack_prompt_for(ike,
 								      "Username",
-								      true,
+								      RC_USERPROMPT,
 								      xauth_username,
 								      sizeof(xauth_username))) {
 							/* already logged */
@@ -2465,6 +2470,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 					break;
 				}
 
+				case IKEv1_ATTR_XAUTH_PASSCODE:
 				case IKEv1_ATTR_XAUTH_USER_PASSWORD:
 				{
 					struct isakmp_attribute attr = {
@@ -2475,7 +2481,25 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 						return STF_INTERNAL_ERROR;
 					}
 
-					if (ike->sa.st_xauth_password.ptr == NULL) {
+					/*
+					 * A one-time password is never
+					 * looked up or saved; it is always
+					 * prompted for and then discarded.
+					 *
+					 * It is requested using
+					 * XAUTH_PASSCODE (FortiGate) or,
+					 * when there's no passcode, by
+					 * XAUTH_TYPE OTP making
+					 * USER_PASSWORD the OTP.
+					 */
+					bool otp = (attr_type == IKEv1_ATTR_XAUTH_PASSCODE ||
+						    (xauth_type == IKEv1_XAUTH_TYPE_OTP &&
+						     !passcode_requested));
+					chunk_t otp_secret = empty_chunk;
+					chunk_t *secret = (otp ? &otp_secret :
+							   &ike->sa.st_xauth_password);
+
+					if (!otp && secret->ptr == NULL) {
 						const struct secret_preshared_stuff *pks =
 							xauth_secret_by_xauthname(ike->sa.st_xauth_username,
 										  ike->sa.logger);
@@ -2483,8 +2507,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 						    ike->sa.st_xauth_username,
 						    pks);
 						if (pks != NULL) {
-							ike->sa.st_xauth_password =
-								clone_hunk_as_chunk(pks, "saved xauth password");
+							*secret = clone_hunk_as_chunk(pks, "saved xauth password");
 						}
 					}
 
@@ -2495,11 +2518,11 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 					 */
 					bool discard_pw = false;
 
-					if (ike->sa.st_xauth_password.ptr == NULL) {
+					if (secret->ptr == NULL) {
 						char xauth_password[XAUTH_MAX_PASS_LENGTH];
 						if (!whack_prompt_for(ike,
-								      "Password",
-								      false,
+								      (otp ? "OTP" : "Password"),
+								      (otp ? RC_ENTEROTP : RC_ENTERSECRET),
 								      xauth_password,
 								      sizeof(xauth_password))) {
 							/* already logged */
@@ -2515,25 +2538,24 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 								*cptr = '\0';
 						}
 						/* see above */
-						pexpect(ike->sa.st_xauth_password.ptr == NULL);
-						ike->sa.st_xauth_password = clone_bytes_as_chunk(xauth_password,
-											     strlen(xauth_password),
-											     "XAUTH password");
+						pexpect(secret->ptr == NULL);
+						*secret = clone_bytes_as_chunk(xauth_password,
+									       strlen(xauth_password),
+									       "XAUTH password");
+						memset(xauth_password, 0, sizeof(xauth_password));
 						discard_pw = true;
 					}
 
-					if (!pbs_out_hunk(&attrval,
-							  ike->sa.st_xauth_password,
-							  "XAUTH password")) {
-						if (discard_pw) {
-							free_chunk_content(&ike->sa.st_xauth_password);
-						}
+					bool ok = pbs_out_hunk(&attrval, *secret, "XAUTH password");
+
+					if (discard_pw) {
+						memset(secret->ptr, 0, secret->len);
+						free_chunk_content(secret);
+					}
+					if (!ok) {
 						return STF_INTERNAL_ERROR;
 					}
 
-					if (discard_pw) {
-						free_chunk_content(&ike->sa.st_xauth_password);
-					}
 					close_pbs_out(&attrval);
 					break;
 				}
@@ -2594,6 +2616,7 @@ stf_status xauth_inI0(struct state *ike_sa, struct msg_digest *md)
 	struct isakmp_mode_attr *ma = &md->chain[ISAKMP_NEXT_MODECFG]->payload.mode_attribute;
 	struct pbs_in *attrs = &md->chain[ISAKMP_NEXT_MODECFG]->pbs;
 	lset_t xauth_resp = LEMPTY;
+	uint16_t xauth_type = IKEv1_XAUTH_TYPE_GENERIC;
 
 	int status = 0;
 	stf_status stat = STF_FAIL_v1N;
@@ -2685,18 +2708,29 @@ stf_status xauth_inI0(struct state *ike_sa, struct msg_digest *md)
 		}
 
 		case IKEv1_ATTR_XAUTH_TYPE | ISAKMP_ATTR_AF_TV:
-			if (attr.isaat_lv != IKEv1_XAUTH_TYPE_GENERIC) {
+		{
+			if (attr.isaat_lv != IKEv1_XAUTH_TYPE_GENERIC &&
+			    attr.isaat_lv != IKEv1_XAUTH_TYPE_OTP) {
 				llog(RC_LOG, ike->sa.logger, "XAUTH: Unsupported type: %d",
 				     attr.isaat_lv);
 				return STF_IGNORE;
 			}
-			ldbg(ike->sa.logger, "received Cisco XAUTH type: Generic");
+			xauth_type = attr.isaat_lv;
+			name_buf b;
+			ldbg(ike->sa.logger, "received Cisco XAUTH type: %s",
+			     str_enum_long(&ikev1_xauth_type_names, xauth_type, &b));
 			xauth_resp |= XAUTHLELEM(IKEv1_ATTR_XAUTH_TYPE);
 			break;
+		}
 
 		case IKEv1_ATTR_XAUTH_USER_NAME | ISAKMP_ATTR_AF_TLV:
 			ldbg(ike->sa.logger, "received Cisco XAUTH username");
 			xauth_resp |= XAUTHLELEM(IKEv1_ATTR_XAUTH_USER_NAME);
+			break;
+
+		case IKEv1_ATTR_XAUTH_PASSCODE | ISAKMP_ATTR_AF_TLV:
+			ldbg(ike->sa.logger, "received XAUTH passcode");
+			xauth_resp |= XAUTHLELEM(IKEv1_ATTR_XAUTH_PASSCODE);
 			break;
 
 		case IKEv1_ATTR_XAUTH_USER_PASSWORD | ISAKMP_ATTR_AF_TLV:
@@ -2751,7 +2785,8 @@ stf_status xauth_inI0(struct state *ike_sa, struct msg_digest *md)
 
 	if (gotrequest) {
 		if (xauth_resp & (XAUTHLELEM(IKEv1_ATTR_XAUTH_USER_NAME) |
-				  XAUTHLELEM(IKEv1_ATTR_XAUTH_USER_PASSWORD))) {
+				  XAUTHLELEM(IKEv1_ATTR_XAUTH_USER_PASSWORD) |
+				  XAUTHLELEM(IKEv1_ATTR_XAUTH_PASSCODE))) {
 			if (!ike->sa.st_connection->local->host.config->xauth.client) {
 				llog(RC_LOG, ike->sa.logger,
 				     "XAUTH: Username or password request was received, but XAUTH client mode not enabled.");
@@ -2767,7 +2802,8 @@ stf_status xauth_inI0(struct state *ike_sa, struct msg_digest *md)
 		}
 
 		stat = xauth_client_resp(ike, md, xauth_resp,
-					 md->chain[ISAKMP_NEXT_MODECFG]->payload.mode_attribute.isama_identifier);
+					 md->chain[ISAKMP_NEXT_MODECFG]->payload.mode_attribute.isama_identifier,
+					 xauth_type);
 	}
 
 	if (stat != STF_OK) {
