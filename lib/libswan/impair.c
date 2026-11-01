@@ -271,6 +271,7 @@ struct impairment impairments[] = {
 	B(send_no_ikev2_auth, "causes pluto to omit sending an IKEv2 IKE_AUTH packet"),
 	B(send_no_main_r2, "causes pluto to omit sending an last Main Mode response packet"),
 	B(send_no_xauth_r0, "causes pluto to omit sending an XAUTH user/passwd request"),
+	B(send_xauth_passcode, "causes pluto to also request an XAUTH passcode (OTP) in the XAUTH user/passwd request"),
 	B(send_no_idr, "causes pluto as initiator to omit sending an IDr payload"),
 	V(send_pkcs7_thingie, "send certificate payload as a PKCS7 thingie",
 	  .unsigned_help = "1=certificates; 2=crl"),

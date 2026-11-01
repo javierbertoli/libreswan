@@ -900,6 +900,22 @@ stf_status xauth_send_request(struct ike_sa *ike)
 			return STF_INTERNAL_ERROR;
 		}
 
+		/*
+		 * Empty passcode attribute; mimics a FortiGate
+		 * requesting a one-time password.  The reply's
+		 * passcode is ignored.
+		 */
+		if (impair.send_xauth_passcode) {
+			llog(IMPAIR_STREAM, ike->sa.logger,
+			     "sending XAUTH passcode request");
+			struct isakmp_attribute pc = {
+				.isaat_af_type = IKEv1_ATTR_XAUTH_PASSCODE,
+			};
+			if (!modecfg_out_attr(&modecfg_pbs, pc, NULL)) {
+				return STF_INTERNAL_ERROR;
+			}
+		}
+
 		if (!modecfg_out_close(&modecfg_pbs, ike)) {
 			return STF_INTERNAL_ERROR;
 		}
