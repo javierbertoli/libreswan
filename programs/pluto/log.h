@@ -48,7 +48,7 @@ void show_log(struct show *s);
 
 extern bool whack_prompt_for(struct ike_sa *ike,
 			     const char *prompt,
-			     bool echo,
+			     enum rc_type rc,
 			     char *ansbuf,
 			     size_t ansbuf_len);
 
