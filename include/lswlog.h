@@ -52,6 +52,7 @@ enum rc_type {
 	/* entry of secrets */
 	RC_ENTERSECRET = 10,
 	RC_USERPROMPT = 11,
+	RC_ENTEROTP = 12,	/* XAUTH one-time password, never cached */
 
 	RC_EXIT_FLOOR = 20,
 

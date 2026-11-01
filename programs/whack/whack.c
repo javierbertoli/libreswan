@@ -164,7 +164,7 @@ static void help(void)
 		"\n"
 		"initiation: whack (--initiate [--remote-host <ip or hostname>] | --terminate) \\\n"
 		"	--name <connection_name> [--asynchronous] \\\n"
-		"	[--username <name>] [--xauthpass <pass>]\n"
+		"	[--username <name>] [--xauthpass <pass>] [--xauthotp <otp>|-]\n"
 		"\n"
 		"rekey: whack (--rekey-ike | --rekey-child) \\\n"
 		"	--name <connection_name> [--asynchronous] \\\n"
@@ -371,6 +371,7 @@ enum opt {
 	OPT_CRASH,
 	OPT_USERNAME,
 	OPT_XAUTHPASS,
+	OPT_XAUTHOTP,
 
 	OPT_KEYID,
 	OPT_ADDKEY,
@@ -753,6 +754,7 @@ const struct option optarg_options[] = {
 	{ "xauthuser\0", required_argument, NULL, OPT_USERNAME }, /* old name */
 	{ "xauthname\0", required_argument, NULL, OPT_USERNAME }, /* old name */
 	{ "xauthpass\0", required_argument, NULL, OPT_XAUTHPASS },
+	{ "xauthotp\0", required_argument, NULL, OPT_XAUTHOTP },
 
 	{ OPT("oppohere", "<address>"), required_argument, NULL, OPT_OPPO_HERE },
 	{ OPT("oppothere", "<address>"), required_argument, NULL, OPT_OPPO_THERE },
@@ -1019,8 +1021,10 @@ int main(int argc, char **argv)
 
 	char xauthusername[MAX_XAUTH_USERNAME_LEN];
 	char xauthpass[XAUTH_MAX_PASS_LENGTH];
+	char xauthotp[XAUTH_MAX_PASS_LENGTH];
 	int usernamelen = 0;	/* includes '\0' */
 	int xauthpasslen = 0;	/* includes '\0' */
+	int xauthotplen = 0;	/* includes '\0' */
 	bool ignore_errors = false;
 	struct whack_pubkey pubkey = {0};
 
@@ -1998,6 +2002,20 @@ int main(int argc, char **argv)
 			xauthpasslen = fill_and_terminate(xauthpass, optarg) - xauthpass + 1;
 			continue;
 
+		case OPT_XAUTHOTP:	/* --xauthotp <otp>|- */
+			if (strcmp(optarg, "-") == 0) {
+				/* keep the OTP off the command line */
+				if (fgets(xauthotp, sizeof(xauthotp), stdin) == NULL) {
+					diagw("--xauthotp -: cannot read OTP from standard input");
+				}
+				xauthotp[strcspn(xauthotp, "\n")] = '\0';
+				xauthotplen = strlen(xauthotp) + 1;
+				continue;
+			}
+			/* length includes NUL, same as --xauthpass */
+			xauthotplen = jam_str(xauthotp, sizeof(xauthotp), optarg) - xauthotp + 1;
+			continue;
+
 		case END_CAT:		/* --cat[={yes,no}] */
 			end->we_cat = (optarg == NULL ? "yes" : optarg);
 			continue;
@@ -2314,8 +2332,8 @@ int main(int argc, char **argv)
 
 	int exit_status = whack_send_msg(&msg,
 					 (ctlsocket == NULL ? DEFAULT_CTL_SOCKET : ctlsocket),
-					 xauthusername, xauthpass,
-					 usernamelen, xauthpasslen,
+					 xauthusername, xauthpass, xauthotp,
+					 usernamelen, xauthpasslen, xauthotplen,
 					 logger, NOISY_WHACK);
 
 	if (ignore_errors)

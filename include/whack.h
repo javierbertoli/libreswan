@@ -642,7 +642,8 @@ enum whack_noise {
 int whack_send_msg(struct whack_message *msg, const char *ctlsocket,
 		   char xauthusername[MAX_XAUTH_USERNAME_LEN],
 		   char xauthpass[XAUTH_MAX_PASS_LENGTH],
-		   int usernamelen, int xauthpasslen,
+		   char xauthotp[XAUTH_MAX_PASS_LENGTH],
+		   int usernamelen, int xauthpasslen, int xauthotplen,
 		   struct logger *logger,
 		   enum whack_noise noise);
 
