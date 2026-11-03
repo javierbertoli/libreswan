@@ -28,6 +28,9 @@
 #include <errno.h>
 #include <stdlib.h>		/* for exit() */
 #include <sys/un.h>		/* struct sockaddr_un;! */
+#include <fcntl.h>		/* for open() */
+#include <signal.h>		/* for sigaction() */
+#include <termios.h>		/* for tcsetattr() */
 
 #include "whack.h"
 #include "lsw_socket.h"
@@ -72,22 +75,115 @@ static int whack_get_value(char *buf, size_t bufsize)
 	return len;
 }
 
-/* Get password from user.  Truncate it to fit in buf. */
-/* ??? the function getpass(3) is obsolete! */
+/*
+ * Get password from user.  Truncate it to fit in buf.
+ *
+ * getpass(3) is obsolete and, with glibc, disables ISIG so that
+ * Ctrl-C can't interrupt the prompt.  Instead turn off echo by hand,
+ * leaving Ctrl-C working; restore the terminal before dying.  Ctrl-Z
+ * is disabled while prompting (stopping whack would leave pluto
+ * blocked waiting for the answer).
+ */
+
+static int secret_tty_fd = -1;
+static struct termios secret_tty_saved;
+
+static void secret_tty_restore_and_die(int sig)
+{
+	if (secret_tty_fd >= 0) {
+		tcsetattr(secret_tty_fd, TCSAFLUSH, &secret_tty_saved);
+		if (write(secret_tty_fd, "\n", 1) < 0) {
+			/* ignore */
+		}
+	}
+	/* SA_RESETHAND|SA_NODEFER: default action, delivered now */
+	raise(sig);
+}
+
+static const int secret_signals[] = { SIGINT, SIGQUIT, SIGTERM, SIGHUP, };
+
 static size_t whack_get_secret(const char *prompt, char *buf, size_t bufsize)
 {
 	fflush(stdout);
 	passert(bufsize > 0);	/* room for terminal NUL */
 
-	char *secret = getpass(prompt);
-	/* jam_str would be good but it requires too much library */
-	size_t len = strlen(secret) + 1;
-	size_t trunc_len = len <= bufsize ? len : bufsize;
+	/* like getpass(3), prefer the terminal; else stdin/stderr */
+	int tty = open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC);
+	int in = (tty >= 0 ? tty : STDIN_FILENO);
+	int out = (tty >= 0 ? tty : STDERR_FILENO);
 
-	memcpy(buf, secret, trunc_len);
-	buf[trunc_len-1] = '\0';	/* force NUL termination */
-	memset(secret, 0, len);	/* scrub secret from RAM */
-	return trunc_len;
+	if (write(out, prompt, strlen(prompt)) < 0) {
+		/* ignore */
+	}
+
+	struct termios saved;
+	bool noecho = (tcgetattr(in, &saved) == 0);
+	struct sigaction old_sa[elemsof(secret_signals)];
+
+	if (noecho) {
+		secret_tty_saved = saved;
+		secret_tty_fd = in;
+		struct sigaction sa = {
+			.sa_handler = secret_tty_restore_and_die,
+			.sa_flags = SA_RESETHAND | SA_NODEFER,
+		};
+		sigemptyset(&sa.sa_mask);
+		for (unsigned i = 0; i < elemsof(secret_signals); i++) {
+			sigaction(secret_signals[i], NULL, &old_sa[i]);
+			/* leave ignored signals, e.g., nohup, ignored */
+			if (old_sa[i].sa_handler != SIG_IGN) {
+				sigaction(secret_signals[i], &sa, NULL);
+			}
+		}
+		struct termios t = saved;
+		t.c_lflag &= ~(ECHO | ECHONL);
+#ifdef VSUSP
+		t.c_cc[VSUSP] = _POSIX_VDISABLE;
+#endif
+		tcsetattr(in, TCSAFLUSH, &t);
+	}
+
+	size_t len = 0;
+	for (;;) {
+		char c;
+		ssize_t r = read(in, &c, 1);
+		if (r < 0 && errno == EINTR) {
+			continue;
+		}
+		if (r < 0) {
+			int e = errno;
+			if (noecho) {
+				tcsetattr(in, TCSAFLUSH, &saved);
+			}
+			errno = e;
+			perror("read secret");
+			exit(RC_WHACK_PROBLEM);
+		}
+		if (r == 0 || c == '\n') {
+			break;
+		}
+		if (len < bufsize - 1) {
+			buf[len++] = c;
+		}
+	}
+	buf[len] = '\0';	/* force NUL termination */
+
+	if (noecho) {
+		tcsetattr(in, TCSAFLUSH, &saved);
+		secret_tty_fd = -1;
+		for (unsigned i = 0; i < elemsof(secret_signals); i++) {
+			sigaction(secret_signals[i], &old_sa[i], NULL);
+		}
+		if (write(out, "\n", 1) < 0) {
+			/* ignore */
+		}
+	}
+
+	if (tty >= 0) {
+		close(tty);
+	}
+
+	return len + 1;		/* includes NUL */
 }
 
 static void whack_send_reply(int sock, const char *buf, ssize_t len, struct logger *logger)
