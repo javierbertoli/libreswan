@@ -53,6 +53,9 @@ void fd_leak(struct fd *fd, struct logger *logger, const struct where *where);
 /* return nr-bytes, or -ERRNO */
 ssize_t fd_sendmsg(const struct fd *fd, const struct msghdr *msg, int flags);
 ssize_t fd_read(const struct fd *fd, void *buf, size_t nbytes);
+/* -ETIMEDOUT when nothing arrives within TIMEOUT_SECONDS */
+ssize_t fd_read_timeout(const struct fd *fd, void *buf, size_t nbytes,
+			unsigned timeout_seconds);
 
 /*
  * Is FD valid (as in something non-negative)?
