@@ -2373,6 +2373,33 @@ stf_status modecfg_server_inACK(struct state *ike_sa, struct msg_digest *md)
 	return STF_OK;
 }
 
+/*
+ * Prompt the whack user for an XAUTH value.
+ *
+ * When there's no answer (no whack attached, or whack went away,
+ * for instance Ctrl-C) stop the connection being revived: a revival
+ * has no whack to prompt so would fail, over and over, and a user
+ * that cancelled wants the connection down.
+ */
+
+static bool xauth_prompt_for(struct ike_sa *ike, const char *prompt,
+			     enum rc_type rc, char *ansbuf, size_t ansbuf_len)
+{
+	if (whack_prompt_for(ike, prompt, rc, ansbuf, ansbuf_len)) {
+		return true;
+	}
+
+	struct connection *c = ike->sa.st_connection;
+	if (c->policy.up || c->policy.keep) {
+		llog(RC_LOG, ike->sa.logger,
+		     "XAUTH %s not entered, connection will not be revived",
+		     prompt);
+		del_policy(c, policy.up);
+		del_policy(c, policy.keep);
+	}
+	return false;
+}
+
 /** XAUTH client code - response to challenge.  May open filehandle to console
  * in order to prompt user for password
  *
@@ -2455,7 +2482,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 					}
 
 					if (ike->sa.st_xauth_username[0] == '\0') {
-						if (!whack_prompt_for(ike,
+						if (!xauth_prompt_for(ike,
 								      "Username",
 								      RC_USERPROMPT,
 								      xauth_username,
@@ -2536,7 +2563,7 @@ static stf_status xauth_client_resp(struct ike_sa *ike,
 
 					if (secret->ptr == NULL) {
 						char xauth_password[XAUTH_MAX_PASS_LENGTH];
-						if (!whack_prompt_for(ike,
+						if (!xauth_prompt_for(ike,
 								      (otp ? "OTP" : "Password"),
 								      (otp ? RC_ENTEROTP : RC_ENTERSECRET),
 								      xauth_password,
