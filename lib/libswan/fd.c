@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <fcntl.h>
+#include <poll.h>
 
 #include "fd.h"
 #include "lswalloc.h"
@@ -121,6 +122,26 @@ ssize_t fd_read(const struct fd *fd, void *buf, size_t nbytes)
 {
 	ssize_t s = read(fd->fd, buf, nbytes);
 	return s < 0 ? -errno : s;
+}
+
+ssize_t fd_read_timeout(const struct fd *fd, void *buf, size_t nbytes,
+			unsigned timeout_seconds)
+{
+	struct pollfd pfd = {
+		.fd = fd->fd,
+		.events = POLLIN,
+	};
+	int n;
+	do {
+		n = poll(&pfd, 1, timeout_seconds * 1000);
+	} while (n < 0 && errno == EINTR);
+	if (n < 0) {
+		return -errno;
+	}
+	if (n == 0) {
+		return -ETIMEDOUT;
+	}
+	return fd_read(fd, buf, nbytes);
 }
 
 bool fd_p(const struct fd *fd)

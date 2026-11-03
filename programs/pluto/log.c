@@ -189,6 +189,19 @@ static void shunk_to_whack(shunk_t message, const struct fd *whackfd, enum rc_ty
 /*
  * Interactive input from the whack user, using current whack_fd
  */
+
+/*
+ * Pluto is blocked while waiting for the answer, so don't wait
+ * forever on a whack that never answers (for instance, an older
+ * whack that doesn't know RC_ENTEROTP).
+ *
+ * Still, be generous: an OTP sent by email can take minutes to
+ * arrive and, when the prompt times out, the connection isn't
+ * revived so the user has to start over.  Since a user can abort
+ * the prompt (Ctrl-C), waiting up to 5 minutes is the lesser evil.
+ */
+#define WHACK_PROMPT_TIMEOUT_SECONDS 300
+
 bool whack_prompt_for(struct ike_sa *ike,
 		      const char *prompt,
 		      enum rc_type rc, char *ansbuf, size_t ansbuf_len)
@@ -214,7 +227,14 @@ bool whack_prompt_for(struct ike_sa *ike,
 		shunk_to_whack(message, whack_fd, rc);
 	}
 
-	ssize_t n = fd_read(whack_fd, ansbuf, ansbuf_len);
+	ssize_t n = fd_read_timeout(whack_fd, ansbuf, ansbuf_len,
+				    WHACK_PROMPT_TIMEOUT_SECONDS);
+	if (n == -ETIMEDOUT) {
+		llog(RC_LOG, ike->sa.logger,
+		     "no %s entered within %u seconds, aborted",
+		     prompt, WHACK_PROMPT_TIMEOUT_SECONDS);
+		return false;
+	}
 	if (n < 0) {
 		llog_errno(RC_LOG, ike->sa.logger, (-(int)n),
 			   "read(whackfd) failed: ");
