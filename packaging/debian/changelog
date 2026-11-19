@@ -1,3 +1,15 @@
+libreswan (5.4.2-1+xauthotp1) unstable; urgency=medium
+
+  * IKEv1 XAUTH client: support OTP and PASSCODE (libreswan#2265):
+    - whack: add --xauthotp option and RC_ENTEROTP prompt
+      ("--xauthotp -" reads the OTP from stdin).
+    - pluto: accept XAUTH_TYPE_OTP and XAUTH_PASSCODE.
+    - whack: let Ctrl-C interrupt password/OTP prompts.
+    - pluto: don't revive a connection when an XAUTH prompt is unanswered.
+    - pluto: time out whack prompts after 300 seconds.
+
+ -- Javier Bértoli <javier.bertoli@breq.io>  Thu, 19 Nov 2026 10:48:49 +0000
+
 libreswan (5.4.2-1) unstable; urgency=high
 
   * New upstream release 5.4.2.
