@@ -1,3 +1,15 @@
+libreswan (5.4.2-1) unstable; urgency=high
+
+  * New upstream release 5.4.2.
+  * Security fixes:
+    - CVE-2026-110339: NULL pointer dereference on empty PKCS#7 payload.
+    - CVE-2026-115846: IKE_INTERMEDIATE addkey bypass.
+  * IKEv2: fix AUTH calculation for non-PSK with INTERMEDIATE.
+  * IKEv2: send INTERNAL_IP6_DNS attribute as 16 bytes (#3134).
+  * ipsec import: fix automated passwordless PKCS#12 import.
+
+ -- Libreswan Team <team@libreswan.org>  Mon, 16 Nov 2026 01:00:00 +0200
+
 libreswan (5.4.1-1) unstable; urgency=low
 
   * Release 5.4.1-1
